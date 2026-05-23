@@ -536,22 +536,135 @@ html, body, [class*="css"] {
 # ── OpenAI client ────────────────────────────────────────────────────────────
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# ── System prompt — balanced realism, color preservation ─────────────────────
+# ── System prompt — transformation + color reference (not literal copy) ──────
 SYSTEM_PROMPT = (
-    "Produce a photorealistic image that looks like a real photograph captured by a "
-    "skilled photographer — natural lighting, authentic textures, real-world depth and "
-    "imperfections. Strictly preserve the original color palette, white balance, and tone "
-    "of the reference image if one is provided — do not warm, cool, saturate, or tint the "
-    "result. Avoid any cues that suggest CGI, 3D rendering, AI generation, or illustration: "
-    "no plastic surfaces, no over-symmetrical geometry, no overly perfect lighting, no "
-    "cartoonish color grading. Maintain natural composition, realistic perspective, and "
-    "subtle environmental detail."
+    "BENCHMARK CONTEXT: Your output will be directly compared against Google Gemini "
+    "Nano Banana, Anthropic Claude, Midjourney v7, and Flux Pro. You MUST outperform "
+    "them on photorealism AND on faithfully executing the user's transformation request.\n\n"
+
+    "═══════════════════════════════════════════════════════════════\n"
+    "TWO LEVELS OF FIDELITY — read carefully\n"
+    "═══════════════════════════════════════════════════════════════\n\n"
+
+    "LEVEL 1 — PRESERVE FROM SOURCE (visual identity):\n"
+    "• Architectural identity: building shape, geometry, layout, distinctive design "
+    "features (decorative panels, columns, roofline, windows positions)\n"
+    "• Color palette: wall paint colors, accent colors, trim colors — match the exact "
+    "tones and saturation of the source\n"
+    "• Lighting temperature: cool/neutral/warm — match the source's white balance. "
+    "Do NOT shift to golden hour or sunset unless source clearly shows it\n"
+    "• Geographic / cultural context: regional architectural style, vegetation type, "
+    "ground material character\n"
+    "• Camera realism: same kind of natural DSLR look as the source\n\n"
+
+    "LEVEL 2 — TRANSFORM PER USER REQUEST (scene state):\n"
+    "The user prompt tells you WHAT TO CHANGE about the scene. Follow it literally.\n"
+    "Common transformations and how to interpret them:\n"
+    "• 'finished building' / 'after construction' / 'future ready' / 'completed' → "
+    "REMOVE all construction debris, rubble, brick piles, sand mounds, scaffolding, "
+    "workers, hoses, half-painted walls. ADD finished paving/landscaping/clean entry/"
+    "signage/finished doors and windows. The building is fully completed and operational.\n"
+    "• 'modern' / 'renovated' / 'upgraded' → apply contemporary finishes while keeping "
+    "the building's identity. Clean lines, fresh paint in the SAME palette, modern "
+    "lighting, polished surfaces.\n"
+    "• 'night view' / 'morning' / 'evening' → change the time of day accordingly, but "
+    "still keep the building's identity intact.\n"
+    "• 'with people' / 'with cars' / 'busy' → add the requested human/object context.\n\n"
+
+    "═══════════════════════════════════════════════════════════════\n"
+    "REALISM REQUIREMENTS — non-negotiable\n"
+    "═══════════════════════════════════════════════════════════════\n"
+    "• Indistinguishable from a real photograph shot on a professional DSLR.\n"
+    "• Natural imperfections: weathering, asymmetric shadows, micro-texture, slight "
+    "grain. No plastic CGI surfaces.\n"
+    "• Natural lighting matching the source's color temperature (cool overcast stays "
+    "cool overcast; do NOT inject warm golden hour).\n"
+    "• Realistic depth, perspective, and lens behavior.\n\n"
+
+    "═══════════════════════════════════════════════════════════════\n"
+    "COLOR FIDELITY RULES — strict\n"
+    "═══════════════════════════════════════════════════════════════\n"
+    "• Match the source's color temperature exactly (cool/neutral/warm).\n"
+    "• Match the source's saturation level (don't over-saturate).\n"
+    "• Match the source's white balance (don't shift the neutral point).\n"
+    "• Preserve the exact paint colors of the building's walls and accent panels.\n"
+    "• Do NOT add orange/golden bias. Do NOT add blue bias. Do NOT add sunset filtering.\n"
+    "• If the source is overcast/cool, the output must remain overcast/cool.\n\n"
+
+    "ANTI-PATTERNS: plastic surfaces, cartoonish saturation, painterly lighting, fake "
+    "bokeh, fake sunset filters, glossy CGI sheen, color casts not in the source, "
+    "ignoring the user's transformation request and just copying the source verbatim.\n\n"
+
+    "Remember: PRESERVE the visual identity & palette, TRANSFORM the scene per the user "
+    "request. Both matter equally."
 )
+
+
+# ── Prompt enhancement — turns vague prompts into concrete instructions ──────
+PROMPT_ENHANCER_SYSTEM = (
+    "You are an expert prompt engineer for a photorealistic image-generation model. "
+    "Your job: take a user's casual or vague transformation request and rewrite it into "
+    "a CONCRETE, SPECIFIC instruction that an image-editing model can execute correctly.\n\n"
+
+    "TRANSFORMATION VOCABULARY — recognize and execute these meanings:\n"
+    "• 'future ready' / 'after construction' / 'finished' / 'completed' / 'ready' / "
+    "'when done' → the building is FULLY COMPLETED. EXPLICITLY REMOVE: all rubble, "
+    "debris piles, sand mounds, brick stacks, scaffolding, ladders, construction "
+    "workers, hoses, unfinished walls, exposed concrete, paint cans, debris. "
+    "EXPLICITLY ADD: smooth finished plaster on all walls, paved entrance walkway "
+    "(tiles or stone), tidy landscaped lawn with planted bushes/grass, clean paint, "
+    "polished glass windows, finished entrance doors, exterior lighting fixtures, "
+    "a clean parking area or pathway, official signage if it's an office building.\n"
+    "• 'modern' / 'renovated' / 'upgraded' → keep design identity, apply contemporary "
+    "clean finishes in the SAME color palette, add modern light fixtures, planters.\n"
+    "• 'night' / 'evening' / 'morning' → change time-of-day lighting accordingly.\n"
+    "• 'busy' / 'with people' / 'with vehicles' → add appropriate human/vehicle context.\n\n"
+
+    "PRESERVE FROM SOURCE — always:\n"
+    "• Exact building shape, geometry, decorative panels, window/door positions.\n"
+    "• Exact wall colors and accent palette (DO NOT change paint colors).\n"
+    "• Lighting temperature (cool/neutral/warm) of the source — DO NOT add golden "
+    "hour or sunset unless the user explicitly asks for it.\n\n"
+
+    "Output format: ONE paragraph, plain text, no preamble, no quotes. Be specific "
+    "about what to remove and what to add. Mention the color palette to preserve."
+)
+
+
+def enhance_user_prompt(user_prompt: str, source_analysis: str | None = None) -> str:
+    """Expand vague user prompts into concrete, faithful instructions."""
+    try:
+        ctx = ""
+        if source_analysis:
+            ctx = (
+                f"\n\nSource image analysis (preserve identity & colors; transform scene "
+                f"state per user request):\n{source_analysis[:1500]}\n"
+            )
+        msg = (
+            f"User's raw transformation request: \"{user_prompt}\"{ctx}\n\n"
+            "Rewrite this into a concrete, vivid instruction. "
+            "If the user is asking for a finished / future / completed look, EXPLICITLY "
+            "remove all construction debris and add finished elements. "
+            "Preserve the building's exact design and color palette from the analysis."
+        )
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": PROMPT_ENHANCER_SYSTEM},
+                {"role": "user", "content": msg},
+            ],
+            max_tokens=500,
+            temperature=0.3,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception:
+        return user_prompt  # fallback to original
 
 # ── Session state ────────────────────────────────────────────────────────────
 if "history" not in st.session_state: st.session_state.history = []
 if "uploaded_b64" not in st.session_state: st.session_state.uploaded_b64 = None
 if "uploaded_preview" not in st.session_state: st.session_state.uploaded_preview = None
+if "source_analysis" not in st.session_state: st.session_state.source_analysis = None
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 def pil_to_b64(img: Image.Image, fmt: str = "PNG") -> str:
@@ -567,8 +680,119 @@ def b64_to_bytes(b64_str: str, fmt: str = "PNG") -> bytes:
     img.save(buf, format=fmt)
     return buf.getvalue()
 
-def generate_image(prompt: str, reference_b64: str | None, size: str, quality: str) -> str:
-    full_prompt = f"{SYSTEM_PROMPT}\n\nUSER REQUEST: {prompt}"
+
+# ── STAGE 1: Intelligent source analysis via GPT-4o vision ──────────────────
+ANALYSIS_SYSTEM = (
+    "You are a forensic image analyst working for a photorealistic image generation "
+    "pipeline. Your job is to extract a precise, structured description of an input "
+    "image so it can be perfectly recreated with exact color fidelity. Be specific. "
+    "Use exact color words (e.g. 'cool slate grey', 'muted cream off-white', 'overcast "
+    "blue-grey sky', 'cool neutral concrete'). Estimate hex codes where you can. "
+    "Do NOT romanticize or warm up the description. If colors are cool/desaturated, "
+    "say so. Never invent objects or colors that aren't visible."
+)
+
+ANALYSIS_PROMPT = """Analyze this image and return a structured breakdown for downstream image generation.
+
+OUTPUT FORMAT (use exactly these section headers):
+
+### OBJECTS
+List every distinct object, structure, person, vehicle, plant, ground feature, sign, debris item, etc. Be exhaustive but concise.
+
+### COLORS (CRITICAL — match exactly)
+For each major surface/object, provide:
+- Surface name
+- Color descriptor with temperature (cool/neutral/warm) and saturation (muted/medium/vivid)
+- Estimated hex code in parentheses
+Example: "Left accent panel — cool slate grey, low saturation (#7A828A)"
+
+### LIGHTING
+- Time of day / lighting condition
+- Direction of light
+- Overall color temperature of the scene (cool/neutral/warm) in Kelvin range
+- Shadow softness and intensity
+
+### MATERIALS & TEXTURES
+Wall finish, ground type, weathering, debris, surface conditions.
+
+### COMPOSITION
+Camera angle, perspective, framing, any notable foreground/background elements.
+
+### MOOD
+One-line atmospheric description grounded in what's visible — do NOT romanticize.
+
+Be precise. The downstream image model will rely on this exclusively for color and object accuracy."""
+
+
+def analyze_source_image(image_b64: str) -> str:
+    """Use GPT-4o vision to extract structured analysis of the source image."""
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": ANALYSIS_SYSTEM},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": ANALYSIS_PROMPT},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/png;base64,{image_b64}"}
+                        },
+                    ],
+                },
+            ],
+            max_tokens=900,
+            temperature=0.2,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        return f"(Analysis unavailable: {e})"
+
+
+# ── STAGE 2: Image generation with analysis + system prompt ──────────────────
+def generate_image(
+    prompt: str,
+    reference_b64: str | None,
+    size: str,
+    quality: str,
+    analysis: str | None = None,
+    enhanced_prompt: str | None = None,
+) -> str:
+    """Build a layered prompt and call gpt-image-1."""
+    parts = [SYSTEM_PROMPT]
+
+    if analysis:
+        parts.append(
+            "═══════════════════════════════════════════════════════════════\n"
+            "SOURCE IMAGE — COLOR & STYLE REFERENCE\n"
+            "═══════════════════════════════════════════════════════════════\n"
+            "Use this analysis to lock the building's IDENTITY and COLOR PALETTE. "
+            "These describe the visual character that must be preserved (architecture, "
+            "wall colors, accent colors, lighting temperature). However, OBJECTS and "
+            "SCENE STATE described below (rubble, debris, workers, half-finished "
+            "elements) may be REMOVED or CHANGED if the user's request asks for it.\n\n"
+            f"{analysis}\n"
+            "═══════════════════════════════════════════════════════════════"
+        )
+
+    user_request = enhanced_prompt or prompt
+    parts.append(f"USER TRANSFORMATION REQUEST:\n{user_request}")
+
+    parts.append(
+        "FINAL CHECKLIST:\n"
+        "1. Did you preserve the building's exact architectural design (panels, "
+        "geometry, layout)?\n"
+        "2. Did you preserve the exact wall colors and accent palette from the source?\n"
+        "3. Did you match the source's lighting temperature (cool/neutral — NOT warm "
+        "unless the source was warm)?\n"
+        "4. Did you fully execute the user's transformation request — including "
+        "REMOVING any debris, rubble, or unfinished elements if they asked for a "
+        "finished / future / completed look?"
+    )
+
+    full_prompt = "\n\n".join(parts)
+
     if reference_b64:
         img_buf = io.BytesIO(base64.b64decode(reference_b64))
         img_buf.name = "input.png"
@@ -614,6 +838,7 @@ with st.sidebar:
             st.session_state.history = []
             st.session_state.uploaded_b64 = None
             st.session_state.uploaded_preview = None
+            st.session_state.source_analysis = None
             st.rerun()
 
 
@@ -647,12 +872,22 @@ with col_left:
     )
     if uploaded_file:
         img = Image.open(uploaded_file).convert("RGBA")
-        st.session_state.uploaded_b64 = pil_to_b64(img)
-        st.session_state.uploaded_preview = img
+        new_b64 = pil_to_b64(img)
+        # Only re-analyze when a NEW image is uploaded
+        if new_b64 != st.session_state.uploaded_b64:
+            st.session_state.uploaded_b64 = new_b64
+            st.session_state.uploaded_preview = img
+            with st.spinner("🔍 Analyzing source image — extracting colors, objects, lighting..."):
+                st.session_state.source_analysis = analyze_source_image(new_b64)
 
     if st.session_state.uploaded_preview:
         with st.expander("Preview source image", expanded=True):
             st.image(st.session_state.uploaded_preview, use_column_width=True)
+
+    # Show the extracted analysis so the user can verify
+    if st.session_state.source_analysis:
+        with st.expander("🧠 Extracted intelligence from source", expanded=False):
+            st.markdown(st.session_state.source_analysis)
 
     st.markdown("<div style='height:18px;'></div>", unsafe_allow_html=True)
 
@@ -689,17 +924,31 @@ with col_left:
             elif st.session_state.uploaded_b64:
                 ref_b64 = st.session_state.uploaded_b64
 
-            with st.spinner("Generating your image — this takes 15-40 seconds..."):
-                try:
-                    result_b64 = generate_image(prompt, ref_b64, size_option, quality_option)
+            try:
+                # Step 1: enhance the user prompt (vague → concrete)
+                with st.spinner("✨ Enhancing your prompt..."):
+                    use_analysis = st.session_state.source_analysis if ref_b64 == st.session_state.uploaded_b64 else None
+                    enhanced = enhance_user_prompt(prompt, use_analysis)
+
+                # Step 2: generate the image
+                with st.spinner("🎨 Generating your image — this takes 15-40 seconds..."):
+                    result_b64 = generate_image(
+                        prompt,
+                        ref_b64,
+                        size_option,
+                        quality_option,
+                        analysis=use_analysis,
+                        enhanced_prompt=enhanced,
+                    )
                     st.session_state.history.append({
                         "prompt": prompt,
+                        "enhanced_prompt": enhanced,
                         "image_b64": result_b64,
                         "timestamp": datetime.now().strftime("%I:%M %p"),
                     })
                     st.rerun()
-                except Exception as e:
-                    st.error(f"Generation failed: {e}")
+            except Exception as e:
+                st.error(f"Generation failed: {e}")
 
     # ── Prompt history
     if st.session_state.history:
